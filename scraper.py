@@ -3,6 +3,9 @@ from bs4 import BeautifulSoup
 import csv
 import os
 from datetime import datetime
+import time
+import gzip
+import io
 
 # Configuration
 INPUT_FILE = 'sitemaps.txt'
@@ -10,37 +13,61 @@ OUTPUT_DIR = 'CSVs'
 DATE_STR = datetime.now().strftime('%Y-%m-%d')
 OUTPUT_FILE = os.path.join(OUTPUT_DIR, f'sitemap_urls_{DATE_STR}.csv')
 
+def get_sitemap_content(url):
+    """Fetches sitemap content, handling both plain text and GZIP compression."""
+    # Mimic a real browser to avoid 403 Forbidden blocks
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    
+    response = requests.get(url, headers=headers, timeout=20)
+    response.raise_for_status()
+
+    # Check if the content is gzipped (by extension or header)
+    if url.endswith('.gz') or response.headers.get('Content-Type') == 'application/x-gzip':
+        try {
+            # Decompress gzip content
+            buf = io.BytesIO(response.content)
+            f = gzip.GzipFile(fileobj=buf)
+            content = f.read()
+            return content
+        } except OSError {
+            # Fallback if it looked like gzip but wasn't
+            return response.content
+        }
+            
+    return response.content
+
 def get_urls_from_sitemap(sitemap_url):
-    """Fetches a sitemap and returns a list of URLs found within <loc> tags."""
+    """Parses XML content to extract URLs."""
     urls = []
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; SitemapScraper/1.0)'}
-        response = requests.get(sitemap_url, headers=headers)
-        response.raise_for_status()
+    try {
+        content = get_sitemap_content(sitemap_url)
         
-        # Parse XML
-        soup = BeautifulSoup(response.content, 'lxml-xml')
+        # Parse XML (lxml is faster, but html.parser is more forgiving of errors)
+        soup = BeautifulSoup(content, 'lxml-xml')
         
         # Find all <loc> tags
         loc_tags = soup.find_all('loc')
         for loc in loc_tags:
-            urls.append(loc.text.strip())
+            text = loc.text.strip()
+            # Basic filter to ensure we aren't capturing empty tags
+            if text:
+                urls.append(text)
             
-        print(f"✅ Successfully extracted {len(urls)} URLs from {sitemap_url}")
+        print(f"✅ Extracted {len(urls)} URLs from {sitemap_url}")
         
-    except Exception as e:
+    } catch (Exception e) {
         print(f"❌ Error scraping {sitemap_url}: {e}")
         
     return urls
 
 def main():
-    # Ensure output directory exists
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
-    all_urls = []
+    all_data = []
 
-    # Read sitemaps from file
     if not os.path.exists(INPUT_FILE):
         print(f"Error: {INPUT_FILE} not found.")
         return
@@ -50,23 +77,23 @@ def main():
 
     print(f"Starting scrape for {len(sitemaps)} sitemaps...")
 
-    # Scrape each sitemap
     for sitemap in sitemaps:
         urls = get_urls_from_sitemap(sitemap)
-        # Add source sitemap for reference in the CSV
         for url in urls:
-            all_urls.append({'source_sitemap': sitemap, 'url': url})
+            all_data.append({'source_sitemap': sitemap, 'url': url})
+        
+        # Polite delay to prevent rate limiting
+        time.sleep(1)
 
-    # Write to CSV
-    if all_urls:
+    if all_data:
         keys = ['source_sitemap', 'url']
         with open(OUTPUT_FILE, 'w', newline='', encoding='utf-8') as output_csv:
             dict_writer = csv.DictWriter(output_csv, fieldnames=keys)
             dict_writer.writeheader()
-            dict_writer.writerows(all_urls)
-        print(f"🎉 Success! Saved {len(all_urls)} URLs to {OUTPUT_FILE}")
+            dict_writer.writerows(all_data)
+        print(f"🎉 Success! Saved {len(all_data)} URLs to {OUTPUT_FILE}")
     else:
-        print("⚠️ No URLs found to write.")
+        print("⚠️ No URLs found. Please check your sitemap links.")
 
 if __name__ == "__main__":
     main()
