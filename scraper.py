@@ -25,23 +25,22 @@ def get_sitemap_content(url):
 
     # Check if the content is gzipped (by extension or header)
     if url.endswith('.gz') or response.headers.get('Content-Type') == 'application/x-gzip':
-        try {
+        try:
             # Decompress gzip content
             buf = io.BytesIO(response.content)
             f = gzip.GzipFile(fileobj=buf)
             content = f.read()
             return content
-        } except OSError {
+        except OSError:
             # Fallback if it looked like gzip but wasn't
             return response.content
-        }
             
     return response.content
 
 def get_urls_from_sitemap(sitemap_url):
     """Parses XML content to extract URLs."""
     urls = []
-    try {
+    try:
         content = get_sitemap_content(sitemap_url)
         
         # Parse XML (lxml is faster, but html.parser is more forgiving of errors)
@@ -57,7 +56,7 @@ def get_urls_from_sitemap(sitemap_url):
             
         print(f"✅ Extracted {len(urls)} URLs from {sitemap_url}")
         
-    } catch (Exception e) {
+    except Exception as e:
         print(f"❌ Error scraping {sitemap_url}: {e}")
         
     return urls
